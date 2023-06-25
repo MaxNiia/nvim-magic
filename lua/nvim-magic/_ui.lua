@@ -45,7 +45,7 @@ function ui.pop_up(lines, filetype, border_text, keymaps)
 	vim.api.nvim_buf_set_lines(popup.bufnr, 0, 1, false, lines)
 end
 
-function ui.prompt_input(title, keymaps, on_submit)
+function ui.prompt_input(title, keymaps, on)
 	local input = Input({
 		position = '20%',
 		size = {
@@ -68,8 +68,9 @@ function ui.prompt_input(title, keymaps, on_submit)
 	}, {
 		prompt = '> ',
 		default_value = '',
-		on_close = function() end,
-		on_submit = on_submit,
+		on_close = on.close or function() end,
+		on_change = on.change or function() end,
+		on_submit = on.submit,
 	})
 	input:mount()
 	input:on(event.BufLeave, function()

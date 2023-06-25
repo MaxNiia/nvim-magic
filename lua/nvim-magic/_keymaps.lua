@@ -42,16 +42,16 @@ function keymaps.get_quick_quit()
 		{
 			'n',
 			'q',
-			function(_)
-				vim.api.nvim_win_close(0, true)
+			function(bufnr)
+				vim.api.nvim_buf_delete(bufnr, {force = true})
 			end,
 			{ noremap = true },
 		},
 		{
 			'n',
 			'<ESC>',
-			function(_)
-				vim.api.nvim_win_close(0, true)
+			function(bufnr)
+				vim.api.nvim_buf_delete(bufnr, {force = true})
 			end,
 			{ noremap = true },
 		},

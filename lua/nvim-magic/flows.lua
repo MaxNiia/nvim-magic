@@ -75,63 +75,68 @@ function flows.suggest_alteration(backend, language)
 		return
 	end
 
-	ui.prompt_input('This code should be altered to...', keymaps.get_quick_quit(), function(task)
-		local visual = table.concat(visual_lines, '\n')
-		local tmpl = templates.loaded.alter
-		local prompt = tmpl:fill({
-			language = language,
-			task = task,
-			snippet = visual,
-		})
-		local prompt_lines = vim.fn.split(prompt, '\n', false)
-		-- we default max tokens to a "large" value in case the prompt is large, this isn't robust
-		-- ideally we would estimate the number of tokens in the prompt and then set a max tokens
-		-- value proportional to that (e.g. 2x) and taking into account the max token limit as well
-		local max_tokens = 3000
-		local stops = { tmpl.stop_code }
+	ui.prompt_input('This code should be altered to...', keymaps.get_quick_quit(), {
+		submit = function(task)
+			local visual = table.concat(visual_lines, '\n')
+			local tmpl = templates.loaded.alter
+			local prompt = tmpl:fill({
+				language = language,
+				task = task,
+				snippet = visual,
+			})
+			local prompt_lines = vim.fn.split(prompt, '\n', false)
+			-- we default max tokens to a "large" value in case the prompt is large, this isn't robust
+			-- ideally we would estimate the number of tokens in the prompt and then set a max tokens
+			-- value proportional to that (e.g. 2x) and taking into account the max token limit as well
+			local max_tokens = 3000
+			local stops = { tmpl.stop_code }
 
-		log.fmt_debug('Fetching alteration max_tokens=%s stops=%s', max_tokens, vim.inspect(stops))
-		ui.notify(nprefix .. string.format('fetching suggested alteration (task=%s)', task))
-		backend:complete(prompt_lines, max_tokens, stops, function(completion)
-			ui.notify(nprefix .. 'fetched suggested alteration (' .. tostring(#completion) .. ' characters)', 'info')
-			local compl_lines = vim.split(completion, '\n', true)
-			vim.api.nvim_set_current_win(orig_winnr)
-			vim.api.nvim_set_current_buf(orig_bufnr)
+			log.fmt_debug('Fetching alteration max_tokens=%s stops=%s', max_tokens, vim.inspect(stops))
+			ui.notify(nprefix .. string.format('fetching suggested alteration (task=%s)', task))
+			backend:complete(prompt_lines, max_tokens, stops, function(completion)
+				ui.notify(
+					nprefix .. 'fetched suggested alteration (' .. tostring(#completion) .. ' characters)',
+					'info'
+				)
+				local compl_lines = vim.split(completion, '\n', true)
+				vim.api.nvim_set_current_win(orig_winnr)
+				vim.api.nvim_set_current_buf(orig_bufnr)
 
-			ui.pop_up(
-				compl_lines,
-				language,
-				{
-					top = 'Suggested alteration',
-					top_align = 'center',
-					bottom = '[a] - append | [p] paste over',
-					bottom_align = 'left',
-				},
-				vim.list_extend(keymaps.get_quick_quit(), {
+				ui.pop_up(
+					compl_lines,
+					language,
 					{
-						'n',
-						'a', -- append to original buffer
-						function(_)
-							buffer.append(orig_bufnr, end_row, compl_lines)
-							vim.api.nvim_win_close(0, true)
-						end,
-						{ noremap = true },
+						top = 'Suggested alteration',
+						top_align = 'center',
+						bottom = '[a] - append | [p] paste over',
+						bottom_align = 'left',
 					},
-					{
-						'n',
-						'p', -- replace in original buffer
-						function(_)
-							buffer.paste_over(orig_bufnr, start_row, start_col, end_row, compl_lines)
-							vim.api.nvim_win_close(0, true)
-						end,
-						{ noremap = true },
-					},
-				})
-			)
-		end, function(errmsg)
-			ui.notify(nprefix .. errmsg)
-		end)
-	end)
+					vim.list_extend(keymaps.get_quick_quit(), {
+						{
+							'n',
+							'a', -- append to original buffer
+							function(_)
+								buffer.append(orig_bufnr, end_row, compl_lines)
+								vim.api.nvim_win_close(0, true)
+							end,
+							{ noremap = true },
+						},
+						{
+							'n',
+							'p', -- replace in original buffer
+							function(_)
+								buffer.paste_over(orig_bufnr, start_row, start_col, end_row, compl_lines)
+								vim.api.nvim_win_close(0, true)
+							end,
+							{ noremap = true },
+						},
+					})
+				)
+			end, function(errmsg)
+				ui.notify(nprefix .. errmsg)
+			end)
+		end,
+	})
 end
 
 function flows.suggest_docstring(backend, language)
@@ -210,15 +215,17 @@ end
 
 -- a Lua function that outputs all key value pairs in a table, even if the table contains tables
 function printTable(t)
-  if t == nil then return end -- added line to check if t is nil
-  for k, v in pairs(t) do
-    if type(v) == "table" then
-      print(k .. ":")
-      printTable(v)
-    else
-      print(k .. ": " .. tostring(v))
-    end
-  end
+	if t == nil then
+		return
+	end -- added line to check if t is nil
+	for k, v in pairs(t) do
+		if type(v) == 'table' then
+			print(k .. ':')
+			printTable(v)
+		else
+			print(k .. ': ' .. tostring(v))
+		end
+	end
 end
 
 function flows.suggest_chat(backend)
@@ -228,45 +235,52 @@ function flows.suggest_chat(backend)
 	local filename = buffer.get_filename()
 	local nprefix = notify_prefix(filename)
 
-  -- check if chat history is zero, set backend chat buffer to orig_bufnr
-  if backend:get_chat_length() == 0 then
-    backend:set_chat_buffer(orig_bufnr)
-  end
+	-- check if chat history is zero, set backend chat buffer to orig_bufnr
+	if backend:get_chat_length() == 0 then
+		backend:set_chat_buffer(orig_bufnr)
+	end
 
 	local visual_lines, start_row, start_col, end_row, _ = buffer.get_visual_lines()
 
-	ui.prompt_input('What is your question? ...', keymaps.get_quick_quit(), function(task)
-    local prompt
+	_G.PROMPT = ""
 
-    if visual_lines == nil then
-      prompt = task
-    else
-      prompt = "Here is some context.\n" .. table.concat(visual_lines, "\n") .. "\nnow, " .. task
-    end
+	ui.prompt_input('What is your question? ...', keymaps.get_quick_quit(), {
+		submit = function(task)
+			task = _G.PROMPT
+			local prompt
 
-    buffer.append_end(backend:get_chat_buffer(), ">> " .. task)
-    log.fmt_debug('Fetching completion max_tokens=%s', max_tokens)
-    backend:chat(prompt, max_tokens, function(completion)
-      buffer.append_end(backend:get_chat_buffer(), completion)
-      --vim.api.nvim_set_current_win(orig_winnr)
-      --vim.api.nvim_set_current_buf(orig_bufnr)
-      --vim.api.nvim_win_set_cursor(0, { end_row, end_col }) -- TODO: use specific window
+			if visual_lines == nil then
+				prompt = task
+			else
+				prompt = 'Here is some context.\n' .. table.concat(visual_lines, '\n') .. '\nnow, ' .. task
+			end
 
-      ui.notify(nprefix .. 'fetched completion (' .. tostring(#completion) .. ' characters)', 'info')
-    end, function(errmsg)
-      ui.notify(nprefix .. errmsg)
-    end)
+			buffer.append_end(backend:get_chat_buffer(), '>> ' .. task)
+			log.fmt_debug('Fetching completion max_tokens=%s', max_tokens)
+			backend:chat(prompt, max_tokens, function(completion)
+				buffer.append_end(backend:get_chat_buffer(), completion)
+				--vim.api.nvim_set_current_win(orig_winnr)
+				--vim.api.nvim_set_current_buf(orig_bufnr)
+				--vim.api.nvim_win_set_cursor(0, { end_row, end_col }) -- TODO: use specific window
 
-	end)
+				ui.notify(nprefix .. 'fetched completion (' .. tostring(#completion) .. ' characters)', 'info')
+			end, function(errmsg)
+				ui.notify(nprefix .. errmsg)
+			end)
+			_G.PROMPT = ""
+		end,
+		change = function(str)
+			_G.PROMPT = str
+		end,
+		close = function()
+			_G.PROMPT = ""
+		end,
+	})
 end
 
 function flows.suggest_chat_reset(backend)
-  backend:chat_reset()
-  print("Chat has been reset")
+	backend:chat_reset()
+	print('Chat has been reset')
 end
-
-
-
-
 
 return flows
